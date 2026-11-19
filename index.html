@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Library Management System</title>
+<style>
+  body {
+    font-family: "Times New Roman", Times, serif;
+    background: #121212;
+    color: #e6e6e6;
+    margin: 0;
+    padding: 20px;
+    font-size: 18px;
+  }
+  h1 {
+    font-family: "Trebuchet MS", Verdana, sans-serif;
+    text-align: center;
+    color: #8ab4f8;
+    letter-spacing: 2px;
+  }
+  h3 { margin-top: 0; color: #8ab4f8; }
+  .card {
+    background: #1e1e1e;
+    border-radius: 8px;
+    padding: 15px 20px;
+    margin: 15px auto;
+    max-width: 1000px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.6);
+  }
+  input {
+    padding: 8px;
+    margin: 4px;
+    border: 1px solid #444;
+    border-radius: 4px;
+    background: #2a2a2a;
+    color: #e6e6e6;
+    font-family: inherit;
+    font-size: 16px;
+  }
+  button {
+    padding: 7px 12px;
+    margin: 3px;
+    border: none;
+    border-radius: 4px;
+    background: #3b6fb6;
+    color: white;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 16px;
+  }
+  button:hover:not(:disabled) { background: #4f86d1; }
+  button:disabled { background: #444; color: #888; cursor: not-allowed; }
+  .danger { background: #a33a3a; }
+  .danger:hover:not(:disabled) { background: #c04848; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 8px; border-bottom: 1px solid #333; text-align: left; }
+  th { background: #263238; }
+  .available { color: #66bb6a; font-weight: bold; }
+  .issued { color: #ef5350; font-weight: bold; }
+  #message { text-align: center; min-height: 26px; color: #ffd54f; font-weight: bold; }
+  #empty { text-align: center; color: #999; }
+  .hidden { display: none; }
+  .center { text-align: center; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; max-width: 1000px; margin: auto; }
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN SCREEN ================= -->
+<div id="loginScreen">
+  <h1>Library Management System</h1>
+
+  <div class="card center">
+    <h3>Developer Login</h3>
+    <div>
+      <input type="text" id="devUser" placeholder="Username" style="width:200px">
+      <input type="password" id="devPass" placeholder="Password" style="width:200px">
+      <button onclick="loginDeveloper()">Login as Developer</button>
+    </div>
+    <p id="loginMsg" class="center" style="color:#ef5350;"></p>
+  </div>
+
+  <div class="card center">
+    <h3>User</h3>
+    <button onclick="loginUser()">Continue as User</button>
+  </div>
+</div>
+<!-- ================= MAIN APP ================= -->
+<div id="appScreen" class="hidden">
+  <h1>Library Management System</h1>
+
+  <div class="topbar">
+    <span id="roleLabel"></span>
+    <button class="danger" onclick="logout()">Logout</button>
+  </div>
+
+  <!-- Developer only: add book -->
+  <div class="card" id="devPanel">
+    <h3>Add Book (Developer)</h3>
+    <input type="number" id="bookId" placeholder="Book ID">
+    <input type="text" id="title" placeholder="Title">
+    <input type="text" id="author" placeholder="Author">
+    <input type="text" id="location" placeholder="Location (e.g. Shelf A-2)">
+    <button onclick="addBookFromForm()">Add Book</button>
+  </div>
+
+  <div id="message"></div>
+
+  <div class="card">
+    <input type="text" id="search" placeholder="Search by title" oninput="render()">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Title</th>
+          <th>Author</th>
+          <th>Location</th>
+          <th>Status</th>
+          <th>Issue</th>
+          <th>Return</th>
+          <th class="devCol">Developer</th>
+        </tr>
+      </thead>
+      <tbody id="bookTable"></tbody>
+    </table>
+    <p id="empty"></p>
+  </div>
+</div>
+
+<script>
+const DEV_USER = "developer";
+const DEV_PASS = "dev123";
+
+let role = null;
+const books = new Map();   // key = book ID (same idea as std::map<int, Book> in C++)
+
+// ---------- Storage (browser only, C++ files are not touched) ----------
+function saveBooks() {
+  localStorage.setItem("libraryBooks", JSON.stringify([...books.values()]));
+}
+
+function loadBooks() {
+  const saved = JSON.parse(localStorage.getItem("libraryBooks") || "[]");
+  saved.forEach(b => books.set(b.id, b));
+}
+
+// ---------- Login ----------
+function loginDeveloper() {
+  const u = document.getElementById("devUser").value.trim();
+  const p = document.getElementById("devPass").value;
+  if (u === DEV_USER && p === DEV_PASS) {
+    startApp("developer");
+  } else {
+    document.getElementById("loginMsg").textContent = "Wrong developer username or password.";
+  }
+}
+
+function loginUser() {
+  startApp("user");
+}
+
+function startApp(r) {
+  role = r;
+  loadBooks();
+  document.getElementById("loginScreen").classList.add("hidden");
+  document.getElementById("appScreen").classList.remove("hidden");
+  document.getElementById("devPanel").classList.toggle("hidden", r !== "developer");
+  document.getElementById("roleLabel").textContent =
+    r === "developer" ? "Logged in as Developer" : "Logged in as User";
+  render();
+}
+
+function logout() {
+  location.reload();
+}
+
+// ---------- Operations (named after the C++ Library methods) ----------
+
+// Matches Library::addBook()
+function addBook(id, title, author, location) {
+  if (books.has(id)) {
+    showMessage(`Error: A book with ID ${id} already exists.`);
+    return;
+  }
+  books.set(id, { id, title, author, location, available: true });
+  saveBooks();
+  showMessage("Book added successfully.");
+  render();
+}
+
+// Matches Library::removeBook()
+function removeBook(id) {
+  if (!books.has(id)) {
+    showMessage(`Error: No book found with ID ${id}.`);
+    return;
+  }
+  if (!confirm(`Remove book ${id}?`)) return;
+  books.delete(id);
+  saveBooks();
+  showMessage("Book removed successfully.");
+  render();
+}
+
+// Matches Library::issueBook()
+function issueBook(id) {
+  const book = books.get(id);
+  if (!book) {
+    showMessage(`Error: No book found with ID ${id}.`);
+    return;
+  }
+  if (!book.available) {
+    showMessage(`Error: Book ${id} is already issued.`);
+    return;
+  }
+  book.available = false;
+  saveBooks();
+  showMessage("Book issued successfully.");
+  render();
+}
+
+// Matches Library::returnBook()
+function returnBook(id) {
+  const book = books.get(id);
+  if (!book) {
+    showMessage(`Error: No book found with ID ${id}.`);
+    return;
+  }
+  if (book.available) {
+    showMessage(`Error: Book ${id} was not issued.`);
+    return;
+  }
+  book.available = true;
+  saveBooks();
+  showMessage("Book returned successfully.");
+  render();
+}
+
+// Matches Library::setLocation() (location is assigned by the admin/developer)
+function setLocation(id) {
+  const book = books.get(id);
+  const newLoc = document.getElementById("loc-" + id).value.trim();
+  if (!book) {
+    showMessage(`Error: No book found with ID ${id}.`);
+    return;
+  }
+  if (newLoc === "") {
+    showMessage("Please enter a location.");
+    return;
+  }
+  book.location = newLoc;
+  saveBooks();
+  showMessage("Location updated.");
+  render();
+}
+
+// ---------- Form helper (developer add) ----------
+function addBookFromForm() {
+  const rawId = document.getElementById("bookId").value;
+  const title = document.getElementById("title").value.trim();
+  const author = document.getElementById("author").value.trim();
+  const location = document.getElementById("location").value.trim();
+
+  if (rawId === "" || !title || !author || !location) {
+    showMessage("Please fill in ID, title, author and location.");
+    return;
+  }
+
+  addBook(Number(rawId), title, author, location);
+
+  document.getElementById("bookId").value = "";
+  document.getElementById("title").value = "";
+  document.getElementById("author").value = "";
+  document.getElementById("location").value = "";
+}
+
+// ---------- Display ----------
+function showMessage(text) {
+  document.getElementById("message").textContent = text;
+}
+
+function render() {
+  const keyword = document.getElementById("search").value.toLowerCase();
+  const tbody = document.getElementById("bookTable");
+  tbody.innerHTML = "";
+
+  const isDev = role === "developer";
+  document.querySelectorAll(".devCol").forEach(el => el.classList.toggle("hidden", !isDev));
+
+  const sorted = [...books.values()].sort((a, b) => a.id - b.id);
+  let shown = 0;
+
+  for (const book of sorted) {
+    if (!book.title.toLowerCase().includes(keyword)) continue;
+    shown++;
+
+    const statusClass = book.available ? "available" : "issued";
+    const statusText = book.available ? "Available" : "Issued";
+
+    const devCell = isDev
+      ? `<td>
+           <input type="text" id="loc-${book.id}" placeholder="New location" style="width:120px">
+           <button onclick="setLocation(${book.id})">Set Location</button>
+           <button class="danger" onclick="removeBook(${book.id})">Remove</button>
+         </td>`
+      : "";
+
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${book.id}</td>
+      <td>${book.title}</td>
+      <td>${book.author}</td>
+      <td>${book.location}</td>
+      <td class="${statusClass}">${statusText}</td>
+      <td><button onclick="issueBook(${book.id})" ${!book.available ? "disabled" : ""}>Issue</button></td>
+      <td><button onclick="returnBook(${book.id})" ${book.available ? "disabled" : ""}>Return</button></td>
+      ${devCell}`;
+    tbody.appendChild(row);
+  }
+
+  const empty = document.getElementById("empty");
+  if (books.size === 0) empty.textContent = "The library has no books.";
+  else if (shown === 0) empty.textContent = "No books match your search.";
+  else empty.textContent = "";
+}
+</script>
+
+</body>
+</html>
